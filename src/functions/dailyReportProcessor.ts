@@ -22,10 +22,10 @@ export async function dailyReportProcessor(
     isPastDue: myTimer.isPastDue,
     timestamp: new Date().toISOString()
   });
-
   // Prevent concurrent executions by checking if another instance is running
   const lockKey = `daily-report-processor-lock-${new Date().toISOString().split('T')[0]}`;
-  let blobServiceClient
+  let blobServiceClient;
+  let lockCreated = false; // Track whether we successfully created a lock
   try {
     // Initialize blob service client
     blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
@@ -34,10 +34,9 @@ export async function dailyReportProcessor(
     if (await checkConcurrentExecution(blobServiceClient, lockKey, context)) {
       context.log('Another instance is already running. Exiting.');
       return;
-    }
-
-    // Create processing lock
+    }    // Create processing lock
     await createProcessingLock(blobServiceClient, lockKey, context);
+    lockCreated = true; // Mark that we successfully created the lock
 
     // Initialize containers
     await initializeContainers(blobServiceClient, context);
@@ -72,8 +71,8 @@ export async function dailyReportProcessor(
     context.error('Critical error in daily report processor', error);
     throw error;  } finally {
     // Always remove processing lock, even if processing failed
-    // Only attempt cleanup if blobServiceClient was successfully initialized
-    if (blobServiceClient) {
+    // Only attempt cleanup if blobServiceClient was successfully initialized AND we created a lock
+    if (blobServiceClient && lockCreated) {
       try {
         await removeProcessingLock(blobServiceClient, lockKey, context);
       } catch (lockError) {

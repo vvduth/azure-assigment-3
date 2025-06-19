@@ -248,9 +248,7 @@ describe("dailyReportProcessor", () => {
         "Critical error in daily report processor",
         processingError
       );
-    });
-
-    it("should handle lock creation errors", async () => {
+    });    it("should handle lock creation errors", async () => {
       // Arrange - Lock creation fails
       const lockError = new Error("Failed to create lock");
       (lockUtils.checkConcurrentExecution as jest.Mock).mockResolvedValue(false);
@@ -260,8 +258,12 @@ describe("dailyReportProcessor", () => {
       // Act & Assert
       await expect(dailyReportProcessor(mockTimer, mockContext)).rejects.toThrow("Failed to create lock");
       
-      // Verify cleanup attempts even when lock creation fails
-      expect(lockUtils.removeProcessingLock).toHaveBeenCalledTimes(1);
+      // Verify that we DON'T attempt to remove a lock that was never created
+      expect(lockUtils.removeProcessingLock).not.toHaveBeenCalled();
+      expect(mockContext.error).toHaveBeenCalledWith(
+        "Critical error in daily report processor",
+        lockError
+      );
     });
 
     it("should handle lock removal errors gracefully", async () => {
