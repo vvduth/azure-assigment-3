@@ -1,15 +1,22 @@
-import { app, HttpRequest, HttpResponseInit, InvocationContext, Timer } from "@azure/functions";
-import { BlobServiceClient, ContainerClient, BlobItem } from "@azure/storage-blob";
-import { checkConcurrentExecution, createProcessingLock, removeProcessingLock } from "../utils/lockUtils";
-import { REPORTS_CONTAINER, STORAGE_CONNECTION_STRING } from "../utils/constants";
-import { cleanupProcessedFiles, generateProcessingStats, initializeContainers, listReportFiles, logProcessingResults, processReportsWithRetry } from "../utils/reportUtils";
+import { app, Timer, InvocationContext } from "@azure/functions";
+import { BlobServiceClient } from "@azure/storage-blob";
+import { checkConcurrentExecution, createProcessingLock, removeProcessingLock } from "../../utils/lockUtils";
+import {
+  initializeContainers,
+  listReportFiles,
+  processReportsWithRetry,
+  generateProcessingStats,
+  cleanupProcessedFiles,
+  logProcessingResults
+} from "../../utils/reportUtils";
+
+const STORAGE_CONNECTION_STRING = process.env.AzureWebJobsStorage || "";
 
 /**
  * Main daily report processor function
  * Triggers daily at 2AM UTC to process accumulated reports
  * Implements retry logic, error handling, and proper cleanup
  */
-
 export async function dailyReportProcessor(
   myTimer: Timer,
   context: InvocationContext
@@ -23,12 +30,12 @@ export async function dailyReportProcessor(
     timestamp: new Date().toISOString()
   });
 
-  // Prevent concurrent executions by checking if another instance is running
+  // Create unique lock key for today's processing
   const lockKey = `daily-report-processor-lock-${new Date().toISOString().split('T')[0]}`;
-  let blobServiceClient
+  
   try {
-    // Initialize blob service client
-    blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
+    // Initialize blob service client  
+    const blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
     
     // Check for concurrent execution lock
     if (await checkConcurrentExecution(blobServiceClient, lockKey, context)) {
@@ -36,14 +43,14 @@ export async function dailyReportProcessor(
       return;
     }
 
-    // Create processing lock
+    // Create processing lock to prevent concurrent executions
     await createProcessingLock(blobServiceClient, lockKey, context);
 
-    // Initialize containers
+    // Initialize all required containers
     await initializeContainers(blobServiceClient, context);
 
     // Get list of reports to process
-    const reportsContainer = blobServiceClient.getContainerClient(REPORTS_CONTAINER);
+    const reportsContainer = blobServiceClient.getContainerClient('daily-reports');
     const reportFiles = await listReportFiles(reportsContainer, context);
 
     if (reportFiles.length === 0) {
@@ -63,29 +70,29 @@ export async function dailyReportProcessor(
     // Generate processing statistics
     const stats = generateProcessingStats(results, startTime);
     
-    // Log final results
+    // Log final results with detailed statistics
     logProcessingResults(stats, context);
 
-    // Cleanup processed files
+    // Cleanup processed files and handle errors
     await cleanupProcessedFiles(blobServiceClient, results, context);
+
   } catch (error) {
     context.error('Critical error in daily report processor', error);
-    throw error;  } finally {
+    throw error;
+  } finally {
     // Always remove processing lock, even if processing failed
-    // Only attempt cleanup if blobServiceClient was successfully initialized
-    if (blobServiceClient) {
-      try {
-        await removeProcessingLock(blobServiceClient, lockKey, context);
-      } catch (lockError) {
-        // Log the error but don't throw it - lock removal failure shouldn't fail the main process
-        context.error('Error removing processing lock', lockError);
-      }
+    try {
+      const blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
+      await removeProcessingLock(blobServiceClient, lockKey, context);
+    } catch (lockError) {
+      context.error('Error removing processing lock', lockError);
     }
   }
 }
 
-// TEMPORARY: For testing - runs every minute
+// Register the timer trigger function
+// Runs daily at 2:00 AM UTC (cron expression: 0 0 2 * * *)
 app.timer('dailyReportProcessor', {
-  schedule: '0 * * * * *', // Every minute at 0 seconds
+  schedule: '0 0 2 * * *', // Daily at 2 AM UTC
   handler: dailyReportProcessor
 });

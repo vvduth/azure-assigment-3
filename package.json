@@ -8,7 +8,12 @@
     "clean": "rimraf dist",
     "prestart": "npm run clean && npm run build",
     "start": "func start",
-    "test": "echo \"No tests yet...\""
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPatterns=test.ts",
+    "test:integration": "jest --testPathPatterns=integration.test.ts",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@azure/functions": "^4.0.0",
@@ -18,6 +23,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^20.x",
     "jest": "^30.0.1",
+    "ts-jest": "^29.1.1",
     "rimraf": "^5.0.0",
     "typescript": "^4.0.0"
   },
