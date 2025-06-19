@@ -1,41 +1,12 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext, Timer } from "@azure/functions";
 import { BlobServiceClient, ContainerClient, BlobItem } from "@azure/storage-blob";
-import { checkConcurrentExecution } from "../../utils/checkConcurrentExecution";
+import { checkConcurrentExecution, createProcessingLock, removeProcessingLock } from "../../utils/lockUtils";
+import { REPORTS_CONTAINER, STORAGE_CONNECTION_STRING } from "../../utils/constants";
+import { cleanupProcessedFiles, generateProcessingStats, initializeContainers, listReportFiles, logProcessingResults, processReportsWithRetry } from "../../utils/reportUtils";
 
-const STORAGE_CONNECTION_STRING = process.env.AzureWebJobsStorage || "";
-const REPORTS_CONTAINER = "daily-reports";
-const PROCESSED_CONTAINER = "processed-reports";
-const ERROR_CONTAINER = "error-reports";
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
 
-// Interface for report processing result
-interface ProcessingResult {
-  fileName: string;
-  success: boolean;
-  error?: string;
-  retryCount?: number;
-}
 
-// Interface for report data structure
-interface ReportData {
-  date: string;
-  records: any[];
-  metadata: {
-    totalRecords: number;
-    processedAt: string;
-    source: string;
-  };
-}
 
-// Interface for processing statistics
-interface ProcessingStats {
-  totalFiles: number;
-  successfulFiles: number;
-  failedFiles: number;
-  retryCount: number;
-  processingTime: number;
-}
 
 /**
  * Main daily report processor function
@@ -58,10 +29,10 @@ export async function dailyReportProcessor(
 
   // Prevent concurrent executions by checking if another instance is running
   const lockKey = `daily-report-processor-lock-${new Date().toISOString().split('T')[0]}`;
-  
+  let blobServiceClient
   try {
     // Initialize blob service client
-    const blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
+    blobServiceClient = BlobServiceClient.fromConnectionString(STORAGE_CONNECTION_STRING);
     
     // Check for concurrent execution lock
     if (await checkConcurrentExecution(blobServiceClient, lockKey, context)) {
@@ -103,10 +74,17 @@ export async function dailyReportProcessor(
     await cleanupProcessedFiles(blobServiceClient, results, context);
 
   } catch (error) {
-    context.log.error('Critical error in daily report processor', error);
+    context.error('Critical error in daily report processor', error);
     throw error;
   } finally {
     // Always remove processing lock
     await removeProcessingLock(blobServiceClient, lockKey, context);
   }
 }
+
+// Register the timer trigger function
+// Runs daily at 2:00 AM UTC (cron expression: 0 0 2 * * *)
+app.timer('dailyReportProcessor', {
+  schedule: '0 0 2 * * *', // Daily at 2 AM UTC
+  handler: dailyReportProcessor
+});
