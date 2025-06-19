@@ -1,12 +1,8 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext, Timer } from "@azure/functions";
 import { BlobServiceClient, ContainerClient, BlobItem } from "@azure/storage-blob";
-import { checkConcurrentExecution, createProcessingLock, removeProcessingLock } from "../../utils/lockUtils";
-import { REPORTS_CONTAINER, STORAGE_CONNECTION_STRING } from "../../utils/constants";
-import { cleanupProcessedFiles, generateProcessingStats, initializeContainers, listReportFiles, logProcessingResults, processReportsWithRetry } from "../../utils/reportUtils";
-
-
-
-
+import { checkConcurrentExecution, createProcessingLock, removeProcessingLock } from "../utils/lockUtils";
+import { REPORTS_CONTAINER, STORAGE_CONNECTION_STRING } from "../utils/constants";
+import { cleanupProcessedFiles, generateProcessingStats, initializeContainers, listReportFiles, logProcessingResults, processReportsWithRetry } from "../utils/reportUtils";
 
 /**
  * Main daily report processor function
@@ -82,9 +78,8 @@ export async function dailyReportProcessor(
   }
 }
 
-// Register the timer trigger function
-// Runs daily at 2:00 AM UTC (cron expression: 0 0 2 * * *)
+// TEMPORARY: For testing - runs every minute
 app.timer('dailyReportProcessor', {
-  schedule: '0 0 2 * * *', // Daily at 2 AM UTC
+  schedule: '0 * * * * *', // Every minute at 0 seconds
   handler: dailyReportProcessor
 });
